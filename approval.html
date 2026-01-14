@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>توقيع السند - سند</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+      background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+      max-width: 500px;
+      width: 100%;
+      overflow: hidden;
+    }
+    .header {
+      padding: 24px;
+      text-align: center;
+      color: white;
+    }
+    .header.receipt { background: #1a365d; }
+    .header.payment { background: #ef4444; }
+    .header h1 { font-size: 24px; margin-bottom: 8px; }
+    .header p { opacity: 0.9; font-size: 14px; }
+    .content { padding: 24px; }
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .info-label { color: #6b7280; font-size: 14px; }
+    .info-value { color: #1f2937; font-weight: 600; font-size: 14px; }
+    .amount-section {
+      border-radius: 12px;
+      padding: 20px;
+      margin: 20px 0;
+      text-align: center;
+    }
+    .amount-section.receipt {
+      background: #1a365d10;
+      border: 2px solid #1a365d30;
+    }
+    .amount-section.payment {
+      background: #ef444410;
+      border: 2px solid #ef444430;
+    }
+    .amount-label { color: #6b7280; font-size: 14px; margin-bottom: 8px; }
+    .amount-value { font-size: 28px; font-weight: bold; }
+    .amount-value.receipt { color: #1a365d; }
+    .amount-value.payment { color: #ef4444; }
+    .reason-section {
+      background: #f9fafb;
+      border-radius: 8px;
+      padding: 16px;
+      margin: 16px 0;
+    }
+    .reason-label { color: #6b7280; font-size: 12px; margin-bottom: 4px; }
+    .reason-value { color: #374151; font-size: 14px; }
+    .actions { padding: 24px; display: flex; gap: 12px; }
+    .btn {
+      flex: 1;
+      padding: 14px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-approve {
+      background: #10b981;
+      color: white;
+    }
+    .btn-approve:hover { background: #059669; }
+    .btn-reject {
+      background: #f3f4f6;
+      color: #6b7280;
+    }
+    .btn-reject:hover { background: #e5e7eb; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .loading {
+      text-align: center;
+      padding: 60px 20px;
+    }
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 4px solid #e5e7eb;
+      border-top-color: #1a365d;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error-container {
+      text-align: center;
+      padding: 40px;
+    }
+    .error-icon { font-size: 64px; margin-bottom: 20px; }
+    .success-container { text-align: center; padding: 40px; }
+    .success-icon { font-size: 64px; margin-bottom: 20px; }
+    .reject-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .reject-modal.show { display: flex; }
+    .modal-content {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 400px;
+      width: 90%;
+    }
+    .modal-title { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+    .modal-input {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+    .modal-actions { display: flex; gap: 12px; }
+  </style>
+</head>
+<body>
+  <div class="container" id="app">
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <p>جاري تحميل معلومات السند...</p>
+    </div>
+  </div>
+
+  <div class="reject-modal" id="rejectModal">
+    <div class="modal-content">
+      <div class="modal-title">سبب الرفض</div>
+      <textarea class="modal-input" id="rejectReason" placeholder="اكتب سبب الرفض (اختياري)" rows="3"></textarea>
+      <div class="modal-actions">
+        <button class="btn btn-reject" onclick="closeRejectModal()">إلغاء</button>
+        <button class="btn btn-approve" onclick="confirmReject()" style="background:#ef4444">تأكيد الرفض</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = 'https://kfhysxihnjqpvuerjsbr.supabase.co/functions/v1/customer-approval';
+    let receiptData = null;
+    let token = null;
+
+    // Get token from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    token = urlParams.get('token');
+
+    if (!token) {
+      showError('رابط غير صالح - لا يوجد رمز');
+    } else {
+      loadReceiptData();
+    }
+
+    async function loadReceiptData() {
+      try {
+        const response = await fetch(`${API_URL}?token=${token}&format=json`);
+        const data = await response.json();
+
+        if (!data.success) {
+          showError(data.error || 'حدث خطأ في تحميل البيانات');
+          return;
+        }
+
+        if (data.alreadySigned) {
+          showSuccess('تم التوقيع على هذا السند مسبقاً');
+          return;
+        }
+
+        if (data.alreadyRejected) {
+          showError('تم رفض هذا السند مسبقاً');
+          return;
+        }
+
+        receiptData = data;
+        renderReceipt(data);
+      } catch (error) {
+        console.error('Error:', error);
+        showError('حدث خطأ في الاتصال بالخادم');
+      }
+    }
+
+    function renderReceipt(data) {
+      const voucherType = data.voucherType === 'payment' ? 'payment' : 'receipt';
+      const voucherTitle = voucherType === 'payment' ? 'سند صرف' : 'سند قبض';
+      const typeClass = voucherType;
+
+      document.getElementById('app').innerHTML = `
+        <div class="header ${typeClass}">
+          <h1>توقيع ${voucherTitle}</h1>
+          <p>رقم السند: ${data.receiptNumber}</p>
+        </div>
+        <div class="content">
+          <div class="info-row">
+            <span class="info-label">الشركة</span>
+            <span class="info-value">${data.companyName}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">${voucherType === 'payment' ? 'المستفيد' : 'العميل'}</span>
+            <span class="info-value">${data.customerName}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">التاريخ</span>
+            <span class="info-value">${formatDate(data.issueDate)}</span>
+          </div>
+
+          <div class="amount-section ${typeClass}">
+            <div class="amount-label">${voucherType === 'payment' ? 'مبلغ الصرف' : 'المبلغ المستلم'}</div>
+            <div class="amount-value ${typeClass}">${formatCurrency(data.amount, data.currency)}</div>
+          </div>
+
+          ${data.reason ? `
+          <div class="reason-section">
+            <div class="reason-label">السبب / المقابل</div>
+            <div class="reason-value">${data.reason}</div>
+          </div>
+          ` : ''}
+        </div>
+        <div class="actions">
+          <button class="btn btn-approve" onclick="approve()" id="approveBtn">
+            ✓ أوافق على التوقيع
+          </button>
+          <button class="btn btn-reject" onclick="showRejectModal()" id="rejectBtn">
+            ✗ رفض
+          </button>
+        </div>
+      `;
+    }
+
+    function formatCurrency(amount, currency) {
+      const currencyNames = { 'SAR': 'ريال', 'USD': 'دولار', 'EUR': 'يورو' };
+      return `${Number(amount).toLocaleString('ar-SA', { minimumFractionDigits: 2 })} ${currencyNames[currency] || currency}`;
+    }
+
+    function formatDate(dateStr) {
+      return new Date(dateStr).toLocaleDateString('ar-SA', {
+        year: 'numeric', month: 'long', day: 'numeric'
+      });
+    }
+
+    async function approve() {
+      const btn = document.getElementById('approveBtn');
+      btn.disabled = true;
+      btn.textContent = 'جاري التوقيع...';
+
+      try {
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, action: 'approve' })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          showSuccess('تم التوقيع بنجاح! سيتم إرسال نسخة موقعة على بريدك الإلكتروني.');
+        } else {
+          showError(result.error || 'حدث خطأ أثناء التوقيع');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        showError('حدث خطأ في الاتصال بالخادم');
+      }
+    }
+
+    function showRejectModal() {
+      document.getElementById('rejectModal').classList.add('show');
+    }
+
+    function closeRejectModal() {
+      document.getElementById('rejectModal').classList.remove('show');
+    }
+
+    async function confirmReject() {
+      const reason = document.getElementById('rejectReason').value;
+      closeRejectModal();
+
+      const btn = document.getElementById('rejectBtn');
+      btn.disabled = true;
+      btn.textContent = 'جاري الرفض...';
+
+      try {
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, action: 'reject', reason })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          showError('تم رفض التوقيع');
+        } else {
+          showError(result.error || 'حدث خطأ أثناء الرفض');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        showError('حدث خطأ في الاتصال بالخادم');
+      }
+    }
+
+    function showError(message) {
+      document.getElementById('app').innerHTML = `
+        <div class="error-container">
+          <div class="error-icon">❌</div>
+          <h2 style="color: #dc2626; margin-bottom: 12px;">خطأ</h2>
+          <p style="color: #6b7280;">${message}</p>
+        </div>
+      `;
+    }
+
+    function showSuccess(message) {
+      document.getElementById('app').innerHTML = `
+        <div class="success-container">
+          <div class="success-icon">✅</div>
+          <h2 style="color: #10b981; margin-bottom: 12px;">تم بنجاح</h2>
+          <p style="color: #6b7280;">${message}</p>
+        </div>
+      `;
+    }
+  </script>
+</body>
+</html>
